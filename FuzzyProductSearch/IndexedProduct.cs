@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace FuzzyProductSearch
 {
-    public class IndexedProduct : Product, IIndexedProduct
+    public class IndexedProduct : Product
     {
         public string[] NameParts { get; }
         public string[] ManufacturerParts {get; }
@@ -18,7 +18,7 @@ namespace FuzzyProductSearch
             ManufacturerParts = IndexString(manufacturer.ToLower());
         }
 
-        public IndexedProduct(IProduct p) : this(p.Id, p.Name, p.Manufacturer) { }
+        public IndexedProduct(Product p) : this(p.Id, p.Name, p.Manufacturer) { }
 
         private string[] IndexString(string str) => str.Split(' ').Select(x => x.Trim()).ToArray();
     }

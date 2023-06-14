@@ -1,39 +1,66 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
+using FuzzyProductSearch.Attributes;
 
 namespace FuzzyProductSearch
 {
-    public class DataStore<TItem, TIndexedItem> 
-        where TItem : IProduct
-        where TIndexedItem : IIndexedProduct
+    public class DataStore<TItem> 
+        where TItem : IIdentifiable
     {
         public int Count => _itemsById.Count;
         
-        private SortedList<ulong, TIndexedItem> _itemsById = new();
-        private SortedList<string, List<ulong>> _itemsByName = new();
-        private SortedList<string, List<ulong>> _itemsByManufacturer = new();
+        private SortedList<ulong, TItem> _itemsById = new();
+        private Dictionary<string, SortedList<string, List<ulong>>> _itemsSortedBySearchableMembers = new();
 
         private Dictionary<ulong, (int, int)> _searchHits = new();
 
+        /// <summary>
+        /// All properties of TItem that are marked with the Fuzzy attribute
+        /// </summary>
+        private PropertyInfo[] _fuzzySearchableProperties;
+        /// <summary>
+        /// Maps the item index to a list of all the values of all properties split by white space
+        /// </summary>
+        private Dictionary<ulong, string[][]> _indexedProps = new();
+
+        public DataStore()
+        {
+            _fuzzySearchableProperties = typeof(TItem).GetProperties()
+                .Where(p => p.GetCustomAttribute<FuzzyAttribute>() != null)
+                .Where(p => p.PropertyType == typeof(string))
+                .ToArray();
+
+            if (_fuzzySearchableProperties.Length < 1)
+            {
+                throw new ArgumentException("Type TItem must have at least one member with the [Fuzzy] attribute. Only string properties are supported at this time.");
+            }
+
+            foreach (var prop in _fuzzySearchableProperties)
+            {
+                _itemsSortedBySearchableMembers.Add(prop.Name, new());
+            }
+        }
+
         public void Add(TItem item)
         {
-            _itemsById.Add(item.Id, (TIndexedItem)item.ToIndexed());
+            _itemsById.Add(item.Id, item);
 
-            if (!_itemsByName.ContainsKey(item.Name))
+            foreach (var prop in _fuzzySearchableProperties)
             {
-                _itemsByName[item.Name] = new List<ulong>();
+                var memberIndex = _itemsSortedBySearchableMembers[prop.Name];
+                var value = (string)prop.GetValue(item)!;
+                if (!memberIndex.ContainsKey(value))
+                {
+                    memberIndex[value] = new List<ulong>();
+                }
+                memberIndex[value].Add(item.Id);
             }
-            _itemsByName[item.Name].Add(item.Id);
 
-
-            if (!_itemsByManufacturer.ContainsKey(item.Manufacturer))
-            {
-                _itemsByManufacturer[item.Manufacturer] = new List<ulong>();
-            }
-            _itemsByManufacturer[item.Manufacturer].Add(item.Id);
+            _indexedProps[item.Id] = IndexProps(item);
         }
 
         public IEnumerable<SearchResult> Find(string query)
@@ -42,7 +69,7 @@ namespace FuzzyProductSearch
 
             var queryParts = query.Split(' ').Select(p => p.Trim()).ToArray();
 
-            var cachedComputer = new CachedValueComputer<TIndexedItem, int>(item => ComputeDistance(item, queryParts));
+            var cachedComputer = new CachedValueComputer<TItem, int>(item => ComputeDistance(item, queryParts));
 
             var start = 0;
             var end = _itemsById.Count;
@@ -84,7 +111,7 @@ namespace FuzzyProductSearch
                 });
         }
 
-        private int ComputeDistance(TIndexedItem item, string[] queryParts)
+        private int ComputeDistance(TItem item, string[] queryParts)
         {
             var result = 0f;
 
@@ -102,21 +129,26 @@ namespace FuzzyProductSearch
             return (int)result;
         }
 
-        private int ComputeDistance(TIndexedItem item, string query)
+        private int ComputeDistance(TItem item, string query)
         {
-            var nameDist = ComputeMultiDistance(item.NameParts, query, out var namePartIndex, out var namePartLength);
-            var manufacturerDist = ComputeMultiDistance(item.ManufacturerParts, query, out var manufacturerPartIndex, out var manufacturerPartLength);
+            var minDist = int.MaxValue;
 
-            if (nameDist < manufacturerDist)
+            var partIndexOffset = 0;
+            for (int i = 0; i < _fuzzySearchableProperties.Length; i++)
             {
-                _searchHits[item.Id] = (namePartIndex, namePartLength);
-                return nameDist;
+                var propParts = _indexedProps[item.Id][i];
+                var dist = ComputeMultiDistance(propParts, query, out var partIndex, out var partLength);
+
+                if (dist < minDist)
+                {
+                    minDist = dist;
+                    _searchHits[item.Id] = (partIndex + partIndexOffset, partLength);
+                }
+
+                partIndexOffset++;
             }
-            else
-            {
-                _searchHits[item.Id] = (manufacturerPartIndex + item.NameParts.Length, manufacturerPartLength);
-                return manufacturerDist;
-            }
+
+            return minDist;
         }
 
         /// <summary>
@@ -130,7 +162,6 @@ namespace FuzzyProductSearch
         private int ComputeMultiDistance(string[] parts, string query, out int bestMatchIndex, out int bestMatchLength)
         {
             var min = int.MaxValue;
-            var minPartLength = Math.Min(parts.Min(p => p.Length), query.Length);
 
             bestMatchIndex = -1;
             bestMatchLength = 0;
@@ -138,7 +169,7 @@ namespace FuzzyProductSearch
             for (int i = 0; i < parts.Length; i++)
             {
                 var dist = StringDistance.LevenshteinDistance(parts[i], query);
-                if (dist < min)
+                if (dist < min && dist < Math.Max(parts[i].Length, query.Length))
                 {
                     min = dist;
 
@@ -147,18 +178,26 @@ namespace FuzzyProductSearch
                 }
             }
 
-            if (min >= minPartLength)
+            return min;
+        }
+
+        private string[][] IndexProps(TItem item)
+        {
+            var propParts = new List<string[]>();
+
+            foreach (var prop in _fuzzySearchableProperties)
             {
-                return int.MaxValue;
+                var value = (string)prop.GetValue(item)!;
+                propParts.Add(value.Split(' ').Select(x => x.Trim().ToLower()).ToArray());
             }
 
-            return min;
+            return propParts.ToArray();
         }
 
 
         public struct SearchResult
         {
-            public TIndexedItem Item;
+            public TItem Item;
             public int Rank;
             public int BestMatchIndex;
             public int BestMatchLength;

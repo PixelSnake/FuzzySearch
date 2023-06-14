@@ -5,14 +5,14 @@ namespace FuzzyProductSearch
 {
     internal class Program
     {
-        private static DataStore<Product, IndexedProduct> _store;
+        private static DataStore<Product> _store;
 
         static void Main(string[] args)
         {
-            _store = new DataStore<Product, IndexedProduct>();
+            _store = new DataStore<Product>();
 
             ulong id = 1;
-            foreach (var line in File.ReadLines("C:\\Users\\tn\\Downloads\\nsn-extract-2-21-23.xls.csv"))
+            foreach (var line in File.ReadLines("C:\\Users\\tn\\Downloads\\test.csv"))
             {
                 var parts = line.Split(';');
                 if (parts.Length != 2) continue;
@@ -43,11 +43,14 @@ namespace FuzzyProductSearch
 
             foreach (var result in results)
             {
-                var parts = result.Item.Name.Split(' ').Select(x => x.Trim())
-                    .Concat(result.Item.Manufacturer.Split(' ').Select(x => x.Trim())).ToArray();
+                var nameParts = result.Item.Name.Split(' ').Select(x => x.Trim()).ToArray();
+                var manufacturerParts = result.Item.Manufacturer.Split(' ').Select(x => x.Trim()).ToArray();
+
+                var parts = manufacturerParts.Concat(nameParts).ToArray();
                 parts[result.BestMatchIndex] = $"[{parts[result.BestMatchIndex]}]";
-                var nameWithHighlight = string.Join(' ', parts.Take(result.Item.NameParts.Length));
-                var manufacturerWithHighlight = string.Join(' ', parts.Skip(result.Item.NameParts.Length));
+
+                var manufacturerWithHighlight = string.Join(' ', parts.Take(manufacturerParts.Length));
+                var nameWithHighlight = string.Join(' ', parts.Skip(manufacturerParts.Length));
 
                 Console.WriteLine($"{manufacturerWithHighlight} {nameWithHighlight} ({result.Rank}, {result.Item.Id})");
             }

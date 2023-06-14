@@ -3,14 +3,15 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using FuzzyProductSearch.Attributes;
 
 namespace FuzzyProductSearch
 {
-    public class Product : IProduct
+    public class Product : IIdentifiable
     {
         public ulong Id { get; }
-        public string Name { get; }
-        public string Manufacturer { get; }
+        [Fuzzy] public string Manufacturer { get; }
+        [Fuzzy] public string Name { get; }
 
         public Product(ulong id, string name, string manufacturer)
         {
@@ -18,7 +19,5 @@ namespace FuzzyProductSearch
             Name = name;
             Manufacturer = manufacturer;
         }
-
-        public IIndexedProduct ToIndexed() => new IndexedProduct(this);
     }
 }
