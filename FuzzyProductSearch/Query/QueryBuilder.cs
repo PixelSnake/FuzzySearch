@@ -113,6 +113,31 @@ namespace FuzzyProductSearch.Query
                         i++;
                         break;
 
+                    case "return":
+                        if (parts.Count <= i + 1)
+                        {
+                            throw new QueryException("RETURN statement expects a list of properties, but EOL was given");
+                        }
+
+                        var properties = new List<string>();
+                        do
+                        {
+                            var prop = parts[i + 1];
+                            if (prop[^1] == ',')
+                            {
+                                prop = prop.Substring(0, prop.Length - 1);
+                            }
+
+                            properties.Add(prop);
+                            i++;
+                        } while (properties[^1].EndsWith(','));
+
+                        yield return new ReturnQueryPart
+                        {
+                            Properties = properties.ToArray()
+                        };
+                        break;
+
                     default:
                         throw new QueryException($"Unknown statement {parts[i]}");
                 }
@@ -141,6 +166,11 @@ namespace FuzzyProductSearch.Query
         public class MaximumDistanceQueryPart : IQueryPart
         {
             public float MaximumDistance;
+        }
+
+        public class ReturnQueryPart : IQueryPart
+        {
+            public string[] Properties;
         }
     }
 }

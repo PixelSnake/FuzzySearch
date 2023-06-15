@@ -108,6 +108,10 @@ namespace FuzzyProductSearch
                     case QueryBuilder.MaximumDistanceQueryPart maximumDistance:
                         DistanceComputer.DistanceCutoff = maximumDistance.MaximumDistance;
                         break;
+
+                    case QueryBuilder.ReturnQueryPart returns:
+                        //queryEnumerable = queryEnumerable.Select();
+                        break;
                 }
             }
 
