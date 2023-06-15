@@ -1,5 +1,8 @@
-﻿using System.Diagnostics;
-using static System.Formats.Asn1.AsnWriter;
+﻿using System;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using Console = System.Console;
 
 namespace FuzzyProductSearch
 {
@@ -12,7 +15,8 @@ namespace FuzzyProductSearch
             _store = new DataStore<Product>();
 
             ulong id = 1;
-            foreach (var line in File.ReadLines("C:\\Users\\tn\\Downloads\\test.csv"))
+            foreach (var line in File.ReadLines("C:\\Users\\tn\\Downloads\\nsn-extract-2-21-23.xls.csv"))
+            //foreach (var line in File.ReadLines("C:\\Users\\tn\\Downloads\\test.csv"))
             {
                 var parts = line.Split(';');
                 if (parts.Length != 2) continue;
@@ -46,16 +50,38 @@ namespace FuzzyProductSearch
                 var nameParts = result.Item.Name.Split(' ').Select(x => x.Trim()).ToArray();
                 var manufacturerParts = result.Item.Manufacturer.Split(' ').Select(x => x.Trim()).ToArray();
 
-                var parts = manufacturerParts.Concat(nameParts).ToArray();
-                parts[result.BestMatchIndex] = $"[{parts[result.BestMatchIndex]}]";
+                var partIndex = 0;
 
-                var manufacturerWithHighlight = string.Join(' ', parts.Take(manufacturerParts.Length));
-                var nameWithHighlight = string.Join(' ', parts.Skip(manufacturerParts.Length));
+                PrintResultParts(manufacturerParts, ref partIndex, result.BestMatchIndex);
+                Console.Write(" ");
+                PrintResultParts(nameParts, ref partIndex, result.BestMatchIndex);
 
-                Console.WriteLine($"{manufacturerWithHighlight} {nameWithHighlight} ({result.Rank}, {result.Item.Id})");
+                Console.WriteLine($" ({result.Rank}, {result.Item.Id})");
             }
 
             Console.WriteLine($"{stopwatch.ElapsedMilliseconds}ms\n");
+        }
+
+        private static void PrintResultParts(string[] parts, ref int partCounter, int highlightedPart)
+        {
+            for (var i = 0; i < parts.Length; i++)
+            {
+                var backgroundColor = Console.BackgroundColor;
+                if (partCounter == highlightedPart)
+                {
+                    Console.BackgroundColor = ConsoleColor.Blue;
+                }
+
+                Console.Write(parts[i]);
+                Console.BackgroundColor = backgroundColor;
+
+                if (i < parts.Length - 1)
+                {
+                    Console.Write(" ");
+                }
+
+                partCounter++;
+            }
         }
     }
 }

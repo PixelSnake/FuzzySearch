@@ -13,10 +13,10 @@ namespace FuzzyProductSearch
     {
         public int Count => _itemsById.Count;
         
-        private SortedList<ulong, TItem> _itemsById = new();
-        private Dictionary<string, SortedList<string, List<ulong>>> _itemsSortedBySearchableMembers = new();
+        private SortedList<ulong, TItem> _itemsById = new SortedList<ulong, TItem>();
+        private Dictionary<string, SortedList<string, List<ulong>>> _itemsSortedBySearchableMembers = new Dictionary<string, SortedList<string, List<ulong>>>();
 
-        private Dictionary<ulong, (int, int)> _searchHits = new();
+        private Dictionary<ulong, (int, int)> _searchHits = new Dictionary<ulong, (int, int)>();
 
         /// <summary>
         /// All properties of TItem that are marked with the Fuzzy attribute
@@ -25,7 +25,9 @@ namespace FuzzyProductSearch
         /// <summary>
         /// Maps the item index to a list of all the values of all properties split by white space
         /// </summary>
-        private Dictionary<ulong, string[][]> _indexedProps = new();
+        private Dictionary<ulong, string[][]> _indexedProps = new Dictionary<ulong, string[][]>();
+
+        private readonly DistanceComputer _distanceComputer = new DistanceComputer((a, b) => StringDistance.WeightedLevenshteinDistance(a, b), float.MaxValue);
 
         public DataStore()
         {
@@ -41,7 +43,7 @@ namespace FuzzyProductSearch
 
             foreach (var prop in _fuzzySearchableProperties)
             {
-                _itemsSortedBySearchableMembers.Add(prop.Name, new());
+                _itemsSortedBySearchableMembers.Add(prop.Name, new SortedList<string, List<ulong>>());
             }
         }
 
@@ -68,40 +70,12 @@ namespace FuzzyProductSearch
             _searchHits.Clear();
 
             var queryParts = query.Split(' ').Select(p => p.Trim()).ToArray();
+            var cachedComputer = new CachedValueComputer<TItem, float>(item => ComputeDistance(item, queryParts));
 
-            var cachedComputer = new CachedValueComputer<TItem, int>(item => ComputeDistance(item, queryParts));
+            _itemsById.AsParallel().ForAll(pair => cachedComputer.Compute(pair.Value));
 
-            var start = 0;
-            var end = _itemsById.Count;
-
-            while (start < end)
-            {
-                var middle = (start + end) / 2;
-                var middleItem = _itemsById.GetValueAtIndex(middle);
-                var distance = cachedComputer.Compute(middleItem);
-
-                var leftHalf = (start + middle) / 2;
-                var leftHalfDist = cachedComputer.Compute(_itemsById.GetValueAtIndex(leftHalf));
-
-                var rightHalf = (middle + end) / 2;
-                var rightHalfDist = cachedComputer.Compute(_itemsById.GetValueAtIndex(rightHalf));
-
-                if (leftHalfDist < rightHalfDist)
-                {
-                    end = middle;
-                }
-                else if (rightHalfDist < leftHalfDist)
-                {
-                    start = middle;
-                }
-                else
-                {
-                    start++;
-                }
-            }
-
-            return cachedComputer.Values()
-                .Where(p => p.Value != int.MaxValue)
+            return cachedComputer.SortedValues()
+                .Where(p => p.Value != _distanceComputer.MaxValue && _searchHits.ContainsKey(p.Key))
                 .Select(p => new SearchResult
                 {
                     Item = _itemsById[p.Key],
@@ -111,74 +85,53 @@ namespace FuzzyProductSearch
                 });
         }
 
-        private int ComputeDistance(TItem item, string[] queryParts)
+        private float ComputeDistance(TItem item, string[] queryParts)
         {
             var result = 0f;
 
             foreach (var part in queryParts)
             {
                 var dist = ComputeDistance(item, part);
-                if (dist == int.MaxValue)
+                if (dist == _distanceComputer.MaxValue)
                 {
                     return dist;
                 }
 
-                result += (float)dist / queryParts.Length;
+                result += dist / queryParts.Length;
             }
 
-            return (int)result;
+            return result;
         }
 
-        private int ComputeDistance(TItem item, string query)
+        private float ComputeDistance(TItem item, string query)
         {
-            var minDist = int.MaxValue;
+            var minDist = _distanceComputer.MaxValue;
+            (int index, int length)? bestResult = null;
 
             var partIndexOffset = 0;
             for (int i = 0; i < _fuzzySearchableProperties.Length; i++)
             {
                 var propParts = _indexedProps[item.Id][i];
-                var dist = ComputeMultiDistance(propParts, query, out var partIndex, out var partLength);
+                var dist = _distanceComputer.ComputeMultiDistance(propParts, query, out var partIndex, out var partLength);
 
                 if (dist < minDist)
                 {
                     minDist = dist;
-                    _searchHits[item.Id] = (partIndex + partIndexOffset, partLength);
+                    bestResult = (partIndex + partIndexOffset, partLength);
                 }
 
                 partIndexOffset++;
             }
 
-            return minDist;
-        }
-
-        /// <summary>
-        /// Computes the minimum distance of all parts to the given query.
-        /// </summary>
-        /// <param name="parts"></param>
-        /// <param name="query">The query to test the input parts for.</param>
-        /// <param name="bestMatchIndex">Returns the index of the best matching part. Undefined behavior in case the return value equals int.MaxValue.</param>
-        /// <param name="bestMatchLength">Returns the length of the best matching part. Undefined behavior in case the return value equals int.MaxValue.</param>
-        /// <returns></returns>
-        private int ComputeMultiDistance(string[] parts, string query, out int bestMatchIndex, out int bestMatchLength)
-        {
-            var min = int.MaxValue;
-
-            bestMatchIndex = -1;
-            bestMatchLength = 0;
-
-            for (int i = 0; i < parts.Length; i++)
+            if (bestResult != null)
             {
-                var dist = StringDistance.LevenshteinDistance(parts[i], query);
-                if (dist < min && dist < Math.Max(parts[i].Length, query.Length))
+                lock (_searchHits)
                 {
-                    min = dist;
-
-                    bestMatchIndex = i;
-                    bestMatchLength = parts[i].Length;
+                    _searchHits[item.Id] = bestResult.Value;
                 }
             }
 
-            return min;
+            return minDist;
         }
 
         private string[][] IndexProps(TItem item)
@@ -198,7 +151,7 @@ namespace FuzzyProductSearch
         public struct SearchResult
         {
             public TItem Item;
-            public int Rank;
+            public float Rank;
             public int BestMatchIndex;
             public int BestMatchLength;
         }

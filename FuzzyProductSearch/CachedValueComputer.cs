@@ -11,8 +11,8 @@ namespace FuzzyProductSearch
         where TValue : notnull
     {
         private Func<T, TValue> _valueCalculator;
-        private Dictionary<ulong, TValue> _valueCache = new();
-        private SortedList<TValue, List<ulong>> _sortedValues = new();
+        private Dictionary<ulong, TValue> _valueCache = new Dictionary<ulong, TValue>();
+        private SortedList<TValue, List<ulong>> _sortedValues = new SortedList<TValue, List<ulong>>();
 
         public CachedValueComputer(Func<T, TValue> valueCalculator)
         {
@@ -27,20 +27,28 @@ namespace FuzzyProductSearch
             }
 
             var value = _valueCalculator(item);
-            _valueCache.Add(item.Id, value);
-            
-            if (!_sortedValues.ContainsKey(value))
+
+            lock (_valueCache)
             {
-                _sortedValues[value] = new List<ulong>();
+                _valueCache.Add(item.Id, value);
             }
-            _sortedValues[value].Add(item.Id);
+
+            lock (_sortedValues)
+            {
+                if (!_sortedValues.ContainsKey(value))
+                {
+                    _sortedValues[value] = new List<ulong>();
+                }
+                _sortedValues[value].Add(item.Id);
+            }
+
             return value;
         }
 
         /// <summary>
         /// Returns all cached values sorted in increasing order of their values
         /// </summary>
-        public IEnumerable<KeyValuePair<ulong, TValue>> Values()
+        public IEnumerable<KeyValuePair<ulong, TValue>> SortedValues()
         {
             foreach (var (value, ids) in _sortedValues)
             {
