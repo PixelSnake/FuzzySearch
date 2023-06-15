@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using FuzzyProductSearch.Exceptions;
 using Console = System.Console;
 
 namespace FuzzyProductSearch
@@ -28,20 +29,27 @@ namespace FuzzyProductSearch
 
             while (true)
             {
-                Console.Write("search > ");
+                Console.Write("query > ");
                 var query = Console.ReadLine();
                 if (query == null || query == "!q") return;
 
-                Search(query);
+                try
+                {
+                    ExecuteQuery(query);
+                }
+                catch (QueryException qe)
+                {
+                    Console.WriteLine("ERROR: " + qe.Message);
+                }
             }
         }
 
-        static void Search(string query)
+        static void ExecuteQuery(string query)
         {
             var stopwatch = new Stopwatch();
             stopwatch.Start();
 
-            var results = _store.Find(query).ToArray();
+            var results = _store.Query(query).ToArray();
 
             stopwatch.Stop();
 

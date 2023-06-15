@@ -9,6 +9,12 @@ namespace FuzzyProductSearch
     public class DistanceComputer
     {
         public float MaxValue { get; }
+
+        /// <summary>
+        /// The maximum distance that will be included in the results
+        /// </summary>
+        public static float DistanceCutoff { get; set; } = .5f;
+
         private readonly Func<string, string, float> _distanceComputer;
 
         public DistanceComputer(Func<string, string, float> distanceComputer, float maxValue)
@@ -37,8 +43,7 @@ namespace FuzzyProductSearch
             for (int i = 0; i < parts.Length; i++)
             {
                 var dist = Compute(parts[i], query);
-                var distToLengthRatio = dist / query.Length;
-                if (dist < min && distToLengthRatio < .5f)
+                if (dist < min && IncludeInResults(dist, parts[i], query))
                 {
                     min = dist;
 
@@ -49,5 +54,7 @@ namespace FuzzyProductSearch
 
             return min;
         }
+
+        public static bool IncludeInResults(float distance, string part, string query) => distance / query.Length < DistanceCutoff;
     }
 }

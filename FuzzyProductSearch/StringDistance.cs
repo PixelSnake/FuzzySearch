@@ -51,20 +51,24 @@ namespace FuzzyProductSearch
         /// Computes a weighten Levenshtein-Distance between two strings, where differences towards the beginning of a word are weighed stronger than distances towards the end of a word.
         /// Less is more similar.
         /// </summary>
-        public static int WeightedLevenshteinDistance(string s, string t)
+        public static IEnumerable<int> WeightedLevenshteinDistance(string s, string t)
         {
             if (string.IsNullOrEmpty(s))
             {
                 if (string.IsNullOrEmpty(t))
-                    return 0;
-                return t.Length;
+                {
+                    yield return 0;
+                    yield break;
+                }
+                yield return t.Length;
+                yield break;
             }
 
             if (string.IsNullOrEmpty(t))
             {
-                return s.Length;
+                yield return s.Length;
+                yield break;
             }
-
 
             int n = s.Length;
             int m = t.Length;
@@ -85,9 +89,38 @@ namespace FuzzyProductSearch
                     int min2 = d[i, j - 1] + 1;
                     int min3 = d[i - 1, j - 1] + weightedCost;
                     d[i, j] = Math.Min(Math.Min(min1, min2), min3);
+
+                    yield return d[i, j];
                 }
             }
-            return d[n, m];
         }
+
+        //public static IEnumerable<int> WeightedLevenshteinDistance2(string s, string t)
+        //{
+        //    int n = t.Length;
+        //    int m = s.Length;
+
+        //    var v0 = new int[n + 1];
+        //    var v1 = new int[n + 1];
+
+        //    for (int i = 0; i <= n; v0[i] = i++) ;
+
+        //    for (int i = 0; i < m; i++)
+        //    {
+        //        v1[0] = i + 1;
+
+        //        for (int j = 0; j < n; j++)
+        //        {
+        //            var deletionCost = v0[j + 1] + 1;
+        //            var insertionCost = v1[j] + 1;
+        //            var substitutionCost = v0[j] + (s[i] == t[j] ? 0 : 1);
+
+        //            v1[j + 1] = Math.Min(deletionCost, Math.Min(insertionCost, substitutionCost));
+        //        }
+                
+        //        Array.Copy(v1, v0, n + 1);
+        //        yield return v0[n];
+        //    }
+        //}
     }
 }

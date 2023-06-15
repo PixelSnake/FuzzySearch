@@ -1,10 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using FuzzyProductSearch.Attributes;
+using FuzzyProductSearch.Exceptions;
+using FuzzyProductSearch.Query;
 
 namespace FuzzyProductSearch
 {
@@ -13,36 +16,37 @@ namespace FuzzyProductSearch
     {
         public int Count => _itemsById.Count;
         
-        private SortedList<ulong, TItem> _itemsById = new SortedList<ulong, TItem>();
-        private Dictionary<string, SortedList<string, List<ulong>>> _itemsSortedBySearchableMembers = new Dictionary<string, SortedList<string, List<ulong>>>();
+        private readonly SortedList<ulong, TItem> _itemsById = new SortedList<ulong, TItem>();
+        private readonly Dictionary<string, SortedList<string, List<ulong>>> _itemsSortedBySearchableMembers = new Dictionary<string, SortedList<string, List<ulong>>>();
 
-        private Dictionary<ulong, (int, int)> _searchHits = new Dictionary<ulong, (int, int)>();
+        private readonly Dictionary<ulong, (int, int)> _searchHits = new Dictionary<ulong, (int, int)>();
 
         /// <summary>
         /// All properties of TItem that are marked with the Fuzzy attribute
         /// </summary>
-        private PropertyInfo[] _fuzzySearchableProperties;
+        private readonly Dictionary<string, PropertyInfo> _fuzzySearchableProperties = new Dictionary<string, PropertyInfo>();
         /// <summary>
         /// Maps the item index to a list of all the values of all properties split by white space
         /// </summary>
-        private Dictionary<ulong, string[][]> _indexedProps = new Dictionary<ulong, string[][]>();
-
-        private readonly DistanceComputer _distanceComputer = new DistanceComputer((a, b) => StringDistance.WeightedLevenshteinDistance(a, b), float.MaxValue);
+        private readonly Dictionary<ulong, string[][]> _indexedProps = new Dictionary<ulong, string[][]>();
+        
+        private readonly DistanceComputer _distanceComputer = new DistanceComputer(ComputeDistance, float.MaxValue);
 
         public DataStore()
         {
-            _fuzzySearchableProperties = typeof(TItem).GetProperties()
+            var props = typeof(TItem).GetProperties()
                 .Where(p => p.GetCustomAttribute<FuzzyAttribute>() != null)
                 .Where(p => p.PropertyType == typeof(string))
                 .ToArray();
 
-            if (_fuzzySearchableProperties.Length < 1)
+            if (props.Length < 1)
             {
                 throw new ArgumentException("Type TItem must have at least one member with the [Fuzzy] attribute. Only string properties are supported at this time.");
             }
 
-            foreach (var prop in _fuzzySearchableProperties)
+            foreach (var prop in props)
             {
+                _fuzzySearchableProperties.Add(prop.Name, prop);
                 _itemsSortedBySearchableMembers.Add(prop.Name, new SortedList<string, List<ulong>>());
             }
         }
@@ -51,7 +55,7 @@ namespace FuzzyProductSearch
         {
             _itemsById.Add(item.Id, item);
 
-            foreach (var prop in _fuzzySearchableProperties)
+            foreach (var prop in _fuzzySearchableProperties.Values)
             {
                 var memberIndex = _itemsSortedBySearchableMembers[prop.Name];
                 var value = (string)prop.GetValue(item)!;
@@ -63,6 +67,56 @@ namespace FuzzyProductSearch
             }
 
             _indexedProps[item.Id] = IndexProps(item);
+        }
+
+        public IEnumerable<SearchResult> Query(string query)
+        {
+            var queryParts = new QueryBuilder().BuildQuery(query);
+            IEnumerable<SearchResult> queryEnumerable = null;
+
+            foreach (var part in queryParts)
+            {
+                switch (part)
+                {
+                    case QueryBuilder.SearchQueryPart search:
+                        if (queryEnumerable != null)
+                        {
+                            throw new QueryException("Unexpected SEARCH statement");
+                        }
+
+                        queryEnumerable = Find(search.SearchString);
+                        break;
+
+                    case QueryBuilder.LimitQueryPart limit:
+                        if (queryEnumerable == null)
+                        {
+                            throw new QueryException("Unexpected LIMIT statement");
+                        }
+
+                        queryEnumerable = queryEnumerable.Take(limit.Limit);
+                        break;
+
+                    case QueryBuilder.OffsetQueryPart offset:
+                        if (queryEnumerable == null)
+                        {
+                            throw new QueryException("Unexpected OFFSET statement");
+                        }
+
+                        queryEnumerable = queryEnumerable.Skip(offset.Offset);
+                        break;
+
+                    case QueryBuilder.MaximumDistanceQueryPart maximumDistance:
+                        DistanceComputer.DistanceCutoff = maximumDistance.MaximumDistance;
+                        break;
+                }
+            }
+
+            if (queryEnumerable == null)
+            {
+                throw new QueryException("Query is empty");
+            }
+
+            return queryEnumerable;
         }
 
         public IEnumerable<SearchResult> Find(string query)
@@ -83,6 +137,24 @@ namespace FuzzyProductSearch
                     BestMatchIndex = _searchHits[p.Key].Item1,
                     BestMatchLength = _searchHits[p.Key].Item2,
                 });
+        }
+
+        private static float ComputeDistance(string a, string b)
+        {
+            float lastValue = 0;
+
+            foreach (var intermediateValue in StringDistance.WeightedLevenshteinDistance(a, b))
+            {
+                lastValue = intermediateValue;
+
+                // here we could stop the distance calculation prematurely, if we knew when to, but the Levenshtein algorithm doesn't support this
+                //if (!DistanceComputer.IncludeInResults(intermediateValue, a, b))
+                //{
+                //    break;
+                //}
+            }
+
+            return lastValue;
         }
 
         private float ComputeDistance(TItem item, string[] queryParts)
@@ -109,7 +181,7 @@ namespace FuzzyProductSearch
             (int index, int length)? bestResult = null;
 
             var partIndexOffset = 0;
-            for (int i = 0; i < _fuzzySearchableProperties.Length; i++)
+            for (int i = 0; i < _fuzzySearchableProperties.Count; i++)
             {
                 var propParts = _indexedProps[item.Id][i];
                 var dist = _distanceComputer.ComputeMultiDistance(propParts, query, out var partIndex, out var partLength);
@@ -138,7 +210,7 @@ namespace FuzzyProductSearch
         {
             var propParts = new List<string[]>();
 
-            foreach (var prop in _fuzzySearchableProperties)
+            foreach (var prop in _fuzzySearchableProperties.Values)
             {
                 var value = (string)prop.GetValue(item)!;
                 propParts.Add(value.Split(' ').Select(x => x.Trim().ToLower()).ToArray());
