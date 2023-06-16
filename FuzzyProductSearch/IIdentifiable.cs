@@ -8,6 +8,6 @@ namespace FuzzyProductSearch
 {
     public interface IIdentifiable
     {
-        public ulong Id { get; }
+        public ulong Id { get; set; }
     }
 }

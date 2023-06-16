@@ -15,17 +15,20 @@ namespace FuzzyProductSearch
         {
             _store = new DataStore<Product>();
 
-            ulong id = 1;
-            foreach (var line in File.ReadLines("C:\\Users\\tn\\Downloads\\nsn-extract-2-21-23.xls.csv"))
+            //ulong id = 1;
+
+            //_store.StartBatch();
+
+            //foreach (var line in File.ReadLines("C:\\Users\\Thomas\\Downloads\\nsn-extract-2-21-23.xls.csv"))
             //foreach (var line in File.ReadLines("C:\\Users\\tn\\Downloads\\test.csv"))
-            {
-                var parts = line.Split(';');
-                if (parts.Length != 2) continue;
+            //{
+            //    var parts = line.Split(';');
+            //    if (parts.Length != 2) continue;
 
-                _store.Add(new Product(id++, parts[1], parts[0]));
-            }
+            //    _store.Add(new Product(id++, parts[1], parts[0]));
+            //}
 
-            Console.WriteLine($"{_store.Count} items on record\n");
+            //_store.CommitBatch();
 
             while (true)
             {
@@ -41,6 +44,8 @@ namespace FuzzyProductSearch
                 {
                     Console.WriteLine("ERROR: " + qe.Message);
                 }
+
+                Profiler.Print();
             }
         }
 
@@ -55,16 +60,16 @@ namespace FuzzyProductSearch
 
             foreach (var result in results)
             {
-                var nameParts = result.Item.Name.Split(' ').Select(x => x.Trim()).ToArray();
-                var manufacturerParts = result.Item.Manufacturer.Split(' ').Select(x => x.Trim()).ToArray();
+                // var nameParts = result.Item.Name.Split(' ').Select(x => x.Trim()).ToArray();
+                // var manufacturerParts = result.Item.Manufacturer.Split(' ').Select(x => x.Trim()).ToArray();
 
                 var partIndex = 0;
 
-                PrintResultParts(manufacturerParts, ref partIndex, result.BestMatchIndex);
-                Console.Write(" ");
-                PrintResultParts(nameParts, ref partIndex, result.BestMatchIndex);
+                // PrintResultParts(manufacturerParts, ref partIndex, result.BestMatchIndex);
+                // Console.Write(" ");
+                // PrintResultParts(nameParts, ref partIndex, result.BestMatchIndex);
 
-                Console.WriteLine($" ({result.Rank}, {result.Item.Id})");
+                Console.WriteLine($" ({result.Rank}, {result.Id})");
             }
 
             Console.WriteLine($"{stopwatch.ElapsedMilliseconds}ms\n");

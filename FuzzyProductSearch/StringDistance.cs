@@ -51,23 +51,20 @@ namespace FuzzyProductSearch
         /// Computes a weighten Levenshtein-Distance between two strings, where differences towards the beginning of a word are weighed stronger than distances towards the end of a word.
         /// Less is more similar.
         /// </summary>
-        public static IEnumerable<int> WeightedLevenshteinDistance(string s, string t)
+        public static int WeightedLevenshteinDistance(string s, string t)
         {
             if (string.IsNullOrEmpty(s))
             {
                 if (string.IsNullOrEmpty(t))
                 {
-                    yield return 0;
-                    yield break;
+                    return 0;
                 }
-                yield return t.Length;
-                yield break;
+                return t.Length;
             }
 
             if (string.IsNullOrEmpty(t))
             {
-                yield return s.Length;
-                yield break;
+                return s.Length;
             }
 
             int n = s.Length;
@@ -89,10 +86,10 @@ namespace FuzzyProductSearch
                     int min2 = d[i, j - 1] + 1;
                     int min3 = d[i - 1, j - 1] + weightedCost;
                     d[i, j] = Math.Min(Math.Min(min1, min2), min3);
-
-                    yield return d[i, j];
                 }
             }
+
+            return d[m, n];
         }
 
         //public static IEnumerable<int> WeightedLevenshteinDistance2(string s, string t)
